@@ -10,7 +10,7 @@ import tensorflow as tf
 import numpy as np
 import collections
 import recurrent_fixed
-
+from datetime import datetime
 
 class DAGDataset():
 
@@ -75,72 +75,108 @@ class Network:
         input_X = tf.keras.layers.Input(shape=(None,3,))
         rnn = DynamicRNNEncoder(recurrent_fixed.GRUCell(32),tf.keras.layers.Dense(32, activation="relu"),tf.keras.layers.Dense(32, activation="relu"))(input_X,input_A)
         dense = tf.keras.layers.Dense(100, activation="relu")(rnn)
-        out = tf.keras.layers.Dense(1,activation="relu")(dense)
+        out_mean = tf.keras.layers.Dense(1,activation="relu")(dense)
 
-        F,A,max_node = DynamicRNNDecoder(recurrent_fixed.GRUCell(16),32,3)(rnn,out)
+        F,A= DynamicRNNDecoder(recurrent_fixed.GRUCell(16),32,3)(rnn,out_mean)
 
         self._optimizer = tf.optimizers.Adam(clipnorm=True)
-        self.model = tf.keras.models.Model([input_X,input_A], [out,F,A,max_node])
-        self._metrics = {'loss': tf.metrics.Mean(), 'mse': tf.keras.metrics.MeanSquaredError()}
+        self.model = tf.keras.models.Model([input_X,input_A], [out_mean,F,A])
+        self._metrics = {'loss': tf.metrics.Mean(), 'mse_nodes': tf.keras.metrics.MeanSquaredError(), "mse_s":tf.metrics.Mean()}
         self._loss_fn = tf.keras.losses.Poisson()
-        #self.model.compile(loss=tf.keras.losses.poisson, optimizer=tf.keras.optimizers.Adam(), metrics=['mae', 'mse'])
+        self._writer = tf.summary.create_file_writer(f"./logs/{datetime.now().strftime('%Y%m%d-%H%M%S')}", flush_millis=10 * 1000)
         self.model.summary()
 
     def combined_loss(self,golden, model_output):
-        means, F_hat,A_hat,max_node = model_output
+        means, F_hat,A_hat = model_output
+        max_node = A_hat.shape[1]
         num_nodes, F, A = golden
-        tf.print("Max_node:",max_node, max_node.shape)
-        #tf.print(means, np.expand_dims(num_nodes,axis=1),tf.keras.losses.poisson(means,np.expand_dims(num_nodes,axis=1)))
-        #padd targets so we can compute loss
-        F_ex = []
-        A_ex = []
-        for i in range(F.shape[0]):
-            tf.print(f"predicted_nodes:{max_node}, target_N:{np.max(num_nodes)}")
-            F_ex.append(np.pad(F[i,:,:],((0,max(max_node,F.shape[1])-F.shape[1]),(0,max(max_node,F.shape[2])-F.shape[2])),'constant',constant_values=0))
-            A_ex.append(np.pad(A[i,:,:],((0,max(max_node,A.shape[1])-A.shape[1]),(0,max(max_node,F.shape[2])-F.shape[2])),'constant',constant_values=0))
-        tf.print(F_ex[0].shape, A_ex[0].shape, F_hat.shape, A_hat.shape)
-        #tf.print(f"Mean:{means.shape},F_hat:{F_hat.shape},A_hat:{A_hat.shape}")
-        #tf.print(f"F:{F.shape},A:{A.shape}")
-        #if max_node == 1:
-        #    tf.print("SHIT!")
-        #    return tf.keras.losses.poisson(np.expand_dims(num_nodes,axis=1),means)
-        #else:
-        loss = tf.keras.losses.poisson(np.expand_dims(num_nodes,axis=1),means) + self.structural_loss(A_ex,A_hat) #+ self.feature_loss(F_ex,F_hat)
-        #tf.print("Combined:", tf.metrics.Mean(loss))
-        return loss
-    
+        if A_hat.shape[1] < A.shape[1]:
+            A_hat = tf.pad(A_hat,tf.constant([[0,0],[0,A.shape[1]-A_hat.shape[1]],[0,A.shape[2]-A_hat.shape[2]]]),"CONSTANT")
+            F_hat = tf.pad(F_hat,tf.constant([[0,0],[0,F.shape[1]-F_hat.shape[1]],[0,F.shape[2]-F_hat.shape[2]]]),"CONSTANT")
+
+        elif A_hat.shape[1] > A.shape[1]:
+            A = tf.pad(A,tf.constant([[0,0],[0,A_hat.shape[1]-A.shape[1]],[0,A_hat.shape[2]-A.shape[2]]]),"CONSTANT")
+            F = tf.pad(F,tf.constant([[0,0],[0,F_hat.shape[1]-F.shape[1]],[0,F_hat.shape[2]-F.shape[2]]]),"CONSTANT")
+      
+        loss_p = tf.keras.losses.poisson(np.expand_dims(num_nodes,axis=1),means)
+        loss_s =  self.structural_loss(A,A_hat)
+        loss_f = self.feature_loss(F,F_hat)
+        return tf.math.reduce_sum(loss_p + loss_s + loss_f)
+
+    def pad_same_sizes(self,X,Y):
+        if X.shape[1] < Y.shape[1]:
+            X = tf.pad(X,tf.constant([[0,0],[0,Y.shape[1]-X.shape[1]],[0,Y.shape[2]-X.shape[2]]]),"CONSTANT")
+        elif X.shape[1] > Y.shape[1]:
+            Y = tf.pad(Y,tf.constant([[0,0],[0,X.shape[1]-Y.shape[1]],[0,X.shape[2]-Y.shape[2]]]),"CONSTANT")
+        return X,Y
     def structural_loss(self,A,A_hat):
-        return tf.norm(A-A_hat)
+        err = A - A_hat
+        sq_err = tf.math.square(err)
+        mse = tf.math.reduce_sum(sq_err,axis=[1,2])
+        return mse
   
     def feature_loss(self, F, F_hat):
-        return tf.norm(F-F_hat)
+        err = F
+        sq_err = tf.math.square(err)
+        mse = tf.math.reduce_sum(sq_err,axis=[1,2])
+        return mse
     
     def train_batch(self, batch):
         #print(batch[0][0].shape)
         with tf.GradientTape() as tape:
             estimate = self.model(batch[0],training=True)
              
-            #loss = self._loss_fn(np.expand_dims(batch[1],axis=1), estimate)
+            p_loss = self._loss_fn(np.expand_dims(batch[1],axis=1), estimate[0])
+            #tf.print("P_LOSS:",p_loss.shape,p_loss)
+
             loss = self.combined_loss([batch[1],batch[0][0], batch[0][1]],estimate)
+            #tf.print("Combined LOSS:",loss.shape,p_loss)
             variables = self.model.trainable_variables
             gradients = tape.gradient(loss, variables)
             self._optimizer.apply_gradients(zip(gradients, variables))
             tf.summary.experimental.set_step(self._optimizer.iterations)
+
+            #log metrics
+            with self._writer.as_default():
+                for name, metric in self._metrics.items():
+                    metric.reset_states()
+                    if name == "loss":
+                        metric(loss)
+                    elif name == "mse_s":
+                        padded = self.pad_same_sizes(batch[0][1],estimate[2])
+                        metric(self.structural_loss(padded[0],padded[1]))
+                    else:
+                        metric(estimate[0], batch[1])
+                    tf.summary.scalar("train/{}".format(name), metric.result())
             return loss
     
     def evaluate_batch(self, inputs, targets):
         #tf.print(targetgets.shape)
         targets_ex = np.expand_dims(targets,axis=1)
-        means,n_features,A,max_node = self.model(inputs, training=False)
+        means, n_features, A = self.model(inputs, training=False)
         
         #tf.print(means.shape, targets_ex.shape)
-        loss = self._loss_fn(targets_ex,means)
-        self.combined_loss([targets,inputs[0], inputs[1]], [means,n_features,A], max_node)
+        #loss = self._loss_fn(targets_ex,means)
+        loss = self.combined_loss([targets,inputs[0], inputs[1]], [means,n_features,A])
         for name, metric in self._metrics.items():
             if name == "loss":
                 metric(loss)
+            elif name == "mse_s":
+                padded = self.pad_same_sizes(inputs[1],A)
+                metric(self.structural_loss(padded[0],padded[1]))
             else:
                 metric(means, targets)
+
+
+
+
+        #tf.print("PREDICTION")
+        #tf.print(A[-1:,:])
+        #tf.print(A[-1,:,:])
+        #tf.print("GOLDEN")
+        #tf.print(inputs[1][-1])
+        #tf.print(inputs[1])
+        #tf.print("----------------------------")
     
     def evaluate(self, dataset, batch_size):
         for metric in self._metrics.values():
@@ -149,6 +185,9 @@ class Network:
             self.evaluate_batch(batch[0], batch[1])
 
         metrics = {name: metric.result() for name, metric in self._metrics.items()}
+        with self._writer.as_default():
+            for name, value in metrics.items():
+                tf.summary.scalar("{}/{}".format("DAG_small", name), value)
         return metrics
 
     def train(self, train_data, dev_data, epochs, batch_size):
@@ -158,7 +197,7 @@ class Network:
                 self.train_batch(batch)
             # Evaluate on dev data
             metrics = network.evaluate(dev_data, batch_size)
-            print(f"EPOCH {epoch}/{epochs}:\tDev loss:{metrics['loss']}, Dev MSE:{metrics['mse']}")
+            print(f"EPOCH {epoch}/{epochs}:\tDev loss:{metrics['loss']}, Dev mse_nodes:{metrics['mse_nodes']}, Dev mse_structure:{metrics['mse_s']}")
 
 if __name__ == "__main__":
 
@@ -172,6 +211,6 @@ if __name__ == "__main__":
     #network.model.fit([X,A], np.array(Y),batch_size=50,epochs=200,validation_split=0.2)
     #print(network.predict([X[:10],A[:10]]))    
     
-    batch_size = 4
-    epochs = 1
+    batch_size = 50
+    epochs = 50
     network.train(dataset_train, dataset_dev, epochs,batch_size)
