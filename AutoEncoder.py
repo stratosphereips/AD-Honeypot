@@ -4,7 +4,7 @@ import networkx as nx
 import pickle
 import sys
 from scipy import sparse
-from dynamic_rnn import DynamicRNNEncoder,DynamicRNNDecoder
+from dynamic_rnn import DynamicRNNEncoder,DynamicRNNDecoder, MLP
 
 import tensorflow as tf
 import numpy as np
@@ -20,7 +20,7 @@ class DAGDataset():
         self._shuffler = np.random.RandomState(seed) if shuffle_batches else None
 
     def read_nx_pickle(self, filename):
-        with open(sys.argv[1], "rb") as f:
+        with open(filename, "rb") as f:
             in_data = pickle.load(f)
         for sample in in_data:
             G = nx.from_numpy_array(sparse.csr.csr_matrix.todense(sample[1]), create_using=nx.DiGraph)
@@ -68,20 +68,23 @@ class DAGDataset():
 
 
 class Network:
-    def __init__(self):
-        self._optimizer = tf.optimizers.Adam()
-        #self._writer = tf.summary.create_file_writer(args.logdir, flush_millis=10 * 1000)
-        input_A = tf.keras.layers.Input(shape=(None,None,))
-        input_X = tf.keras.layers.Input(shape=(None,3,))
-        rnn = DynamicRNNEncoder(recurrent_fixed.GRUCell(32),tf.keras.layers.Dense(32, activation="relu"),tf.keras.layers.Dense(32, activation="relu"))(input_X,input_A)
-        dense = tf.keras.layers.Dense(100, activation="relu")(rnn)
-        out_mean = tf.keras.layers.Dense(1,activation="relu")(dense)
+    def __init__(self,args):
+        input_A = tf.keras.layers.Input(shape=(None,None))
+        input_X = tf.keras.layers.Input(shape=(None,3))
+        rnn = DynamicRNNEncoder(rnn_dim=args.enc_rnn_dim, agg_hidden_size=args.agg_hidden, z_dim=args.z_dim)(input_X,input_A)
+        
+        out_mean = MLP([(args.module_hidden,"relu"),(1,"relu")])(rnn)
+        #z_mean = tf.keras.layers.Dense(args.z_dim)(rnn)
+        #z_log_variance = tf.keras.layers.Dense(args.z_dim)(rnn)
+        
+        #input_z = tf.keras.Input(shape=(args.z_dim))
 
-        F,A= DynamicRNNDecoder(recurrent_fixed.GRUCell(16),32,3)(rnn,out_mean)
+        F,A= DynamicRNNDecoder(rnn_dim=args.dec_rnn_dim,z_dim=args.z_dim, feature_dim=args.feature_dim,
+            modul_hidden_size=args.module_hidden,agg_hidden_size=args.agg_hidden)(rnn,out_mean)
 
         self._optimizer = tf.optimizers.Adam(clipnorm=True)
         self.model = tf.keras.models.Model([input_X,input_A], [out_mean,F,A])
-        self._metrics = {'loss': tf.metrics.Mean(), 'mse_nodes': tf.keras.metrics.MeanSquaredError(), "mse_s":tf.metrics.Mean()}
+        self._metrics = {'loss': tf.metrics.Mean(), 'mse_nodes': tf.keras.metrics.MeanSquaredError(), "mse_s":tf.metrics.Mean(),"mse_f":tf.metrics.Mean()}
         self._loss_fn = tf.keras.losses.Poisson()
         self._writer = tf.summary.create_file_writer(f"./logs/{datetime.now().strftime('%Y%m%d-%H%M%S')}", flush_millis=10 * 1000)
         self.model.summary()
@@ -112,13 +115,13 @@ class Network:
     def structural_loss(self,A,A_hat):
         err = A - A_hat
         sq_err = tf.math.square(err)
-        mse = tf.math.reduce_sum(sq_err,axis=[1,2])
+        mse = tf.math.reduce_mean(sq_err,axis=[1,2])
         return mse
   
     def feature_loss(self, F, F_hat):
-        err = F
+        err = F-F_hat
         sq_err = tf.math.square(err)
-        mse = tf.math.reduce_sum(sq_err,axis=[1,2])
+        mse = tf.math.reduce_mean(sq_err,axis=[1,2])
         return mse
     
     def train_batch(self, batch):
@@ -145,6 +148,9 @@ class Network:
                     elif name == "mse_s":
                         padded = self.pad_same_sizes(batch[0][1],estimate[2])
                         metric(self.structural_loss(padded[0],padded[1]))
+                    elif name == "mse_f":
+                        padded = self.pad_same_sizes(batch[0][0],estimate[1])
+                        metric(self.structural_loss(padded[0],padded[1]))
                     else:
                         metric(estimate[0], batch[1])
                     tf.summary.scalar("train/{}".format(name), metric.result())
@@ -164,19 +170,11 @@ class Network:
             elif name == "mse_s":
                 padded = self.pad_same_sizes(inputs[1],A)
                 metric(self.structural_loss(padded[0],padded[1]))
+            elif name == "mse_f":
+                padded = self.pad_same_sizes(inputs[0],n_features)
+                metric(self.structural_loss(padded[0],padded[1]))
             else:
                 metric(means, targets)
-
-
-
-
-        #tf.print("PREDICTION")
-        #tf.print(A[-1:,:])
-        #tf.print(A[-1,:,:])
-        #tf.print("GOLDEN")
-        #tf.print(inputs[1][-1])
-        #tf.print(inputs[1])
-        #tf.print("----------------------------")
     
     def evaluate(self, dataset, batch_size):
         for metric in self._metrics.values():
@@ -187,7 +185,7 @@ class Network:
         metrics = {name: metric.result() for name, metric in self._metrics.items()}
         with self._writer.as_default():
             for name, value in metrics.items():
-                tf.summary.scalar("{}/{}".format("DAG_small", name), value)
+                tf.summary.scalar("{}/{}".format("DAG_small_dev", name), value)
         return metrics
 
     def train(self, train_data, dev_data, epochs, batch_size):
@@ -197,20 +195,37 @@ class Network:
                 self.train_batch(batch)
             # Evaluate on dev data
             metrics = network.evaluate(dev_data, batch_size)
-            print(f"EPOCH {epoch}/{epochs}:\tDev loss:{metrics['loss']}, Dev mse_nodes:{metrics['mse_nodes']}, Dev mse_structure:{metrics['mse_s']}")
+            print(f"EPOCH {epoch}/{epochs}:\tDev loss:{metrics['loss']}, Dev mse_n:{metrics['mse_nodes']}, Dev mse_s:{metrics['mse_s']},Dev mse_f:{metrics['mse_f']}")
 
 if __name__ == "__main__":
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument("--batch_size", default=150, type=int, help="Batch size.")
+    parser.add_argument("--epochs", default=200, type=int, help="Number of epochs.")
+    parser.add_argument("--threads", default=0, type=int, help="Maximum number of threads to use.")
+
+    parser.add_argument("--feature_dim", default=3, type=int, help="Feature dimension")
+    parser.add_argument("--enc_rnn_dim", default=64, type=int, help="Encoder RNN dimension.")
+    parser.add_argument("--z_dim", default=32, type=int, help="Graph embedding dimension")
+
+    parser.add_argument("--dec_rnn_dim", default=64, type=int, help="Encoder RNN dimension.")
+    parser.add_argument("--agg_hidden", default=64, type=int, help="Dimenion of Aggregators hidden layers")
+    parser.add_argument("--module_hidden", default=64, type=int, help="Dimension of Decoder Modules hidden layers")
+    
+    args = parser.parse_args()
+    tf.config.threading.set_inter_op_parallelism_threads(args.threads)
+    tf.config.threading.set_intra_op_parallelism_threads(args.threads)
+
+    train_data = "./dag-data/DAG_small_generated/train_graph_dataset.pickle"
+    dev_data = "./dag-data/DAG_small_generated/dev_data/dev_graph_dataset.pickle"
 
     dataset_train = DAGDataset()
-    dataset_train.read_nx_pickle(sys.argv[1])
+    dataset_train.read_nx_pickle(train_data)
     dataset_dev = DAGDataset()
-    dataset_dev.read_nx_pickle(sys.argv[2])
-    network = Network()
+    dataset_dev.read_nx_pickle(dev_data)
+    network = Network(args)
 
     print("Build complete")
-    #network.model.fit([X,A], np.array(Y),batch_size=50,epochs=200,validation_split=0.2)
-    #print(network.predict([X[:10],A[:10]]))    
     
-    batch_size = 50
-    epochs = 50
-    network.train(dataset_train, dataset_dev, epochs,batch_size)
+
+    network.train(dataset_train, dataset_dev, args.epochs, args.batch_size)
