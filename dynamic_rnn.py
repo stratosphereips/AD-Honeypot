@@ -17,7 +17,7 @@ class DeepSetAggregationLayer(tf.keras.Model):
             if not self.time_first:
                 #[batch,time,features] -> [time,batch,features]
                 input_data = tf.transpose(input_data,[1,0,2])
-            tf.print(input_data.shape)
+            #tf.print(input_data.shape)
             input_array = tf.TensorArray(dtype=tf.float32,size=input_data.shape[0]).unstack(input_data)
         else:
             input_array = input_data
@@ -96,27 +96,33 @@ class DynamicRNNDecoder(tf.keras.Model):
         self.edge_treshold = edge_treshold
         self.rnn_cell = recurrent_fixed.GRUCell(rnn_dim)
 
-        self.feature_module = MLP([(modul_hidden_size,"relu"),(feature_dim,"relu")])
+        self.N_module = out_mean = MLP([(modul_hidden_size,"relu"),(1,"relu")])
+
+        self.feature_module = MLP([(modul_hidden_size,"relu"),(feature_dim,"softmax")])
         self.edge_module = MLP([(modul_hidden_size,"relu"),(1,"sigmoid")])
         self.init_module = MLP([(modul_hidden_size,"relu"),(rnn_dim,"relu")])
         self.graph_aggregator = DeepSetAggregationLayer(tf.keras.layers.Dense(agg_hidden_size,activation="relu"),tf.keras.layers.Dense(z_dim,activation="relu"))
         self.node_aggregator = DeepSetAggregationLayer(tf.keras.layers.Dense(agg_hidden_size,activation="relu"),tf.keras.layers.Dense(self.rnn_cell.units,activation="relu"))
 
-
     @tf.function
-    def call(self, in_encoding, lambdas):
+    def call(self, in_encoding):
+
         #in_encoding shape [1,encoding_dim] - [batch_size, embedding_size]
         #target_nodes shape [1,1] - [batch_size, 1]
 
         #estimate number of nodes in the graph usion Poisson distribution and given lambdas
-        N = tf.random.poisson([1],lambdas, dtype=tf.dtypes.float32)[0]
+        lambdas = self.N_module(in_encoding)
+        
+        N = tf.squeeze(tf.random.poisson([1],lambdas, dtype=tf.dtypes.float32))
         N = tf.cast(N,tf.int32)
-
-        max_nodes = tf.reduce_max(N,axis=0)[0]
+        self._test = N
+        max_nodes = tf.reduce_max(N)
+        #test = [x for x in N]
         if max_nodes <= 0:
             max_nodes =1
         batch_size = lambdas.shape[0] if lambdas.shape[0] else 1
 
+        #self._feature_mask = None
         h_nodes = tf.TensorArray(dtype=tf.float32,size=max_nodes,clear_after_read = False).unstack(tf.zeros([max_nodes, batch_size, self.rnn_cell.units]))
         f_nodes = tf.TensorArray(dtype=tf.float32,size=max_nodes,clear_after_read = False).unstack(tf.zeros([max_nodes, batch_size, self.feature_dim]))
         e_nodes = tf.TensorArray(dtype=tf.float32,size=max_nodes,clear_after_read = False).unstack(tf.zeros([max_nodes, max_nodes, batch_size]))
@@ -173,4 +179,4 @@ class DynamicRNNDecoder(tf.keras.Model):
             #update graph encoding
             H_graph = self.graph_aggregator(h_nodes.identity())
         
-        return tf.transpose(f_nodes.stack(), [1, 0, 2]), tf.transpose(e_nodes.stack(), [2, 0, 1])
+        return lambdas,tf.transpose(f_nodes.stack(), [1, 0, 2]), tf.transpose(e_nodes.stack(), [2, 0, 1]), N
