@@ -76,10 +76,8 @@ class Network:
         #ENCODER 
         input_A = tf.keras.layers.Input(shape=(None,None),name="Input_A")
         input_X = tf.keras.layers.Input(shape=(None,args.feature_dim), name="Input_X")
-        rnn = DynamicRNNEncoder(rnn_dim=args.enc_rnn_dim, agg_hidden_size=args.agg_hidden, z_dim=args.z_dim)(input_X,input_A)
-        z_mean = tf.keras.layers.Dense(args.z_dim)(rnn)
-        z_log_variance = tf.keras.layers.Dense(args.z_dim)(rnn)     
-        self.encoder = tf.keras.Model([input_X,input_A],[z_mean,z_log_variance],name="Encoder")
+        z = DynamicRNNEncoder(rnn_dim=args.enc_rnn_dim, agg_hidden_size=args.agg_hidden, z_dim=args.z_dim)(input_X,input_A) 
+        self.encoder = tf.keras.Model([input_X,input_A],[z],name="Encoder")
 
         
         #DECODER
@@ -100,7 +98,6 @@ class Network:
             'loss_size': tf.keras.metrics.Mean(),
             "loss_features":tf.metrics.Mean(),
             "loss_structure":tf.metrics.Mean(),
-            "loss_latent":tf.metrics.Mean(),
 
         }
         self._loss_fn = tf.keras.losses.Poisson()
@@ -211,11 +208,8 @@ class Network:
         with tf.GradientTape() as tape:
             #encode graphs into latent space
             #z = self.encoder([F,A],training=True)
-            z_mean, z_log_variance = self.encoder([F,A],training=True)
+            z = self.encoder([F,A],training=True)
 
-            z = tf.random.normal(shape=[self._z_dim], mean=z_mean, stddev=tf.math.exp(z_log_variance/2))
-
-            #tf.print(z)
             #decode 
             means, F_hat, A_hat, n_count = self.decoder(z, training=True)
 
@@ -232,13 +226,13 @@ class Network:
             structural_loss = self._structural_loss(A_fixed,A_hat_fixed)
             feature_loss = self._node_loss(F_fixed,F_hat_fixed)
             size_loss = self._size_loss(np.expand_dims(gold_N,axis=1),means)
-            latent_loss = tf.reduce_mean(self._kl_divergence(z_mean, tf.math.exp(z_log_variance/2), 0,1))
+            latent_loss = 0 # tf.reduce_mean(self._kl_divergence(z_mean, tf.math.exp(z_log_variance/2), 0,1))
 
 
             #print(f"N:{size_loss}, F:{feature_loss}, S:{structural_loss}, L:{latent_loss}")
             max_nodes = tf.cast(tf.math.reduce_max([gold_N,n_count]),tf.float32)
             #combine them
-            loss = size_loss + max_nodes*self._feature_dim*feature_loss + max_nodes*max_nodes*structural_loss + self._z_dim*latent_loss
+            loss = size_loss + feature_loss + structural_loss + self._z_dim*latent_loss
             
             #make step
             variables = self.encoder.trainable_variables + self.decoder.trainable_variables
@@ -252,7 +246,7 @@ class Network:
                 tf.summary.scalar("training/feature_loss", feature_loss)
                 tf.summary.scalar("training/size_loss", size_loss)
                 tf.summary.scalar("training/latent_loss", latent_loss)
-                tf.summary.scalar("training/loss", loss)
+                #tf.summary.scalar("training/loss", loss)
             return loss
 
     def train(self, train_data, dev_data, epochs, batch_size):
@@ -261,17 +255,14 @@ class Network:
                 self.train_batch(batch)
             # Evaluate on dev data
             metrics = network.evaluate(dev_data, batch_size)
-            print(f"EPOCH {epoch}/{epochs}:\tDev loss:{metrics['loss']}, S:{metrics['loss_size']}, F:{metrics['loss_features']}, A:{metrics['loss_structure']}, latent:{metrics['loss_latent']}")
+            print(f"EPOCH {epoch}/{epochs}:\tDev loss:{metrics['loss']}, S:{metrics['loss_size']}, F:{metrics['loss_features']}, A:{metrics['loss_structure']}")
     
     def evaluate_batch(self, batch):
         gold_N = batch[1]
         F = batch[0][0]
         A = batch[0][1]
         #encode graphs into latent space
-        #z = self.encoder([F,A],training=False)
-        z_mean, z_log_variance = self.encoder([F,A],training=False)
-
-        z = tf.random.normal(shape=[self._z_dim], mean=z_mean, stddev=tf.math.exp(z_log_variance/2))
+        z = self.encoder([F,A],training=False)
 
         #tf.print(z)
         #decode 
@@ -290,14 +281,14 @@ class Network:
         structural_loss = self._structural_loss(A_fixed,A_hat_fixed)
         feature_loss = self._node_loss(F_fixed,F_hat_fixed)
         size_loss = self._size_loss(np.expand_dims(gold_N,axis=1),means)
-        latent_loss = tf.reduce_mean(self._kl_divergence(z_mean, tf.math.exp(z_log_variance/2), 0,1))
+        latent_loss = 0#tf.reduce_mean(self._kl_divergence(z_mean, tf.math.exp(z_log_variance/2), 0,1))
 
 
         #print(f"N:{size_loss}, F:{feature_loss}, S:{structural_loss}, L:{latent_loss}")
 
         #combine them
         max_nodes = tf.cast(tf.math.reduce_max([gold_N,n_count]),tf.float32)
-        loss = size_loss + max_nodes*self._feature_dim*feature_loss + max_nodes*max_nodes*structural_loss + self._z_dim*latent_loss        
+        loss = size_loss + feature_loss + structural_loss + self._z_dim*latent_loss        
         for name, metric in self._metrics.items():
             if name == "loss":
                 metric(loss)
@@ -352,24 +343,24 @@ class Network:
 if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument("--batch_size", default=200, type=int, help="Batch size.")
+    parser.add_argument("--batch_size", default=64, type=int, help="Batch size.")
     parser.add_argument("--epochs", default=500, type=int, help="Number of epochs.")
     parser.add_argument("--threads", default=0, type=int, help="Maximum number of threads to use.")
 
     parser.add_argument("--feature_dim", default=7, type=int, help="Feature dimension")
     parser.add_argument("--enc_rnn_dim", default=64, type=int, help="Encoder RNN dimension.")
-    parser.add_argument("--z_dim", default=32, type=int, help="Graph embedding dimension")
+    parser.add_argument("--z_dim", default=64, type=int, help="Graph embedding dimension")
 
     parser.add_argument("--dec_rnn_dim", default=64, type=int, help="Encoder RNN dimension.")
     parser.add_argument("--agg_hidden", default=64, type=int, help="Dimenion of Aggregators hidden layers")
     parser.add_argument("--module_hidden", default=64, type=int, help="Dimension of Decoder Modules hidden layers")
-    
+    parser.add_argument("--edge_threshold", default=0.5, type=int, help="Dimension of Decoder Modules hidden layers")
     args = parser.parse_args()
     tf.config.threading.set_inter_op_parallelism_threads(args.threads)
     tf.config.threading.set_intra_op_parallelism_threads(args.threads)
 
-    train_data = "./dag-data/fixed_labels/train/train_graph_dataset.pickle"
-    dev_data = "./dag-data/fixed_labels/dev/dev_graph_dataset.pickle"
+    train_data = "./dag-data/DAG_small_generated/train/train_small_dag.pickle"
+    dev_data = "./dag-data/DAG_small_generated/dev/dev_small_dag.pickle"
 
     dataset_train = DAGDataset()
     dataset_train.read_nx_pickle(train_data)
@@ -383,21 +374,22 @@ if __name__ == "__main__":
     
 
     network.train(dataset_train, dataset_dev, args.epochs, args.batch_size)
-    network.save('./models/vae.')
-    network.save_weights('./checkpoints/vae.')
+    #network.save('./models/vae.')
+    #network.save_weights('./checkpoints/vae.')
     #network.generate(1)
-    data = dataset_dev.batches(3)
+    data = dataset_dev.batches(10)
     batch = next(data)
     F,A = network.test(batch)
-    print(np.argmax(F[0],axis=1))
-    print("--------------")
-    print(A[0])
-    print("##############")
-    print(np.argmax(F[1],axis=1))
-    print("--------------")
-    print(A[1])
-    print("##############")
-    print(np.argmax(F[2],axis=1))
-    print("--------------")
-    print(A[2])
-    print("##############")
+    #print(np.argmax(F[0],axis=1))
+    #print("--------------")
+    #print(np.argmax(F[1],axis=1))
+    #print("--------------")
+    #print(A[1])
+    #print("##############")
+    #print(np.argmax(F[2],axis=1))
+    #print("--------------")
+    #print(A[2])
+    #print("##############")
+    output = {"features":F, "structure":A}
+    with open('dev_output_ae.pickle', 'wb') as handle:
+        pickle.dump(output, handle)
