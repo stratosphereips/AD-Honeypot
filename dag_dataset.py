@@ -111,4 +111,3 @@ class DAG_edge_dataset():
                 yield {"full_X": batch_full_X, "full_A":batch_full_A,
                 "X":batch_x,"A":batch_a, "new_X": np.expand_dims(batch_new_x,axis=1), "target_A":batch_target_a}
 
-
