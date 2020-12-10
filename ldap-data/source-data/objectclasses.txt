@@ -1,4 +1,0 @@
-top
-person
-organizationalPerson
-User
