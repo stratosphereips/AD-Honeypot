@@ -14,7 +14,7 @@ def transform_graph(A, ordering):
                 new_A[mapping[i],mapping[j]] = A[i,j]
         return new_A
 
-def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "group":3, "user":4, "computer":5}):
+def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "group":3, "user":4, "computer":4}):
     objects = {}
 
     DOMAIN_DN = "UNKNOWN"
@@ -182,7 +182,7 @@ def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "g
     X = X[n_ordering]
     return {"X":X, "A":A, "node_id_to_oid":node_id_to_oid, "objects":objects}
 
-def create_honeyusers(node_id_to_oid, objects, parent_nodes, user_data):
+def create_honeyusers(node_id_to_oid, objects, parent_nodes):
     """dsadd user <UserDN> [-samid <SAMName>] [-upn <UPN>] [-fn <FirstName>] [-mi <Initial>] [-ln <LastName>]
         [-display <DisplayName>] [-empid <EmployeeID>] [-pwd {<Password> | *}] [-desc <Description>] [-memberof <Group> ...]
         [-office <Office>] [-tel <PhoneNumber>] [-email <Email>] [-hometel <HomePhoneNumber>] [-pager <PagerNumber>] [-mobile <CellPhoneNumber>]
@@ -191,13 +191,12 @@ def create_honeyusers(node_id_to_oid, objects, parent_nodes, user_data):
         [-reversiblepwd {yes | no}] [-pwdneverexpires {yes | no}] [-acctexpires <NumberOfDays>] [-disabled {yes | no}] [{-s <Server> | -d <Domain>}]
         [-u <UserName>] [-p {<Password> | *}] [-q] [{-uc | -uco | -uci}]
     """
-    #load use attributes
+    #generate the attributes of the user
     unique_id = None
-    password = user_data["pwd"]
-    upn = user_data["upn"]
-    display  = user_data["display"]
-    cn = f"CN={user_data["sn"]} {userd_data["gn"]}"
-    
+    password = "superduper password"
+    upn = "user"
+    display  = "User Usersovic"
+
     #contextual attributes
     groups_dn = []
     ou_dn = None
@@ -227,8 +226,10 @@ def create_honeyusers(node_id_to_oid, objects, parent_nodes, user_data):
         '-accexpires never' \
         f'-memberof {groups}' \
 
-    return cmd
+    print(cmd)
 if __name__ == '__main__':
+
+    classes = {"domain":0, "ou":1, "container":2, "group":3, "user":4, "computer":5}
     parser = ArgumentParser()
     parser.add_argument("--u_file", default=None, type=str, help="Users JSON")
     parser.add_argument("--c_file", default=None, type=str, help="Computers JSON")
@@ -236,7 +237,7 @@ if __name__ == '__main__':
     parser.add_argument("--g_file", default=None, type=str, help="Groups JSON")
     parser.add_argument("--o_file", default=None, type=str, help="OUs JSON")
     parser.add_argument("--gp_file", default=None, type=str, help="GPO JSON")
-    parser.add_argument("--out", default="preprocessed_AD_honeypot_data.pickle", type=str, help="output_filename")
+    parser.add_argument("--out", default="preprocessed_stratotest_domain.pickle", type=str, help="output_filename")
     args = parser.parse_args()
 
     data = process_sharphound_data(args)

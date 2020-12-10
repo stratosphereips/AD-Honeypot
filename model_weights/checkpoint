@@ -1,0 +1,2 @@
+model_checkpoint_path: "ModelVAE_trained"
+all_model_checkpoint_paths: "ModelVAE_trained"
