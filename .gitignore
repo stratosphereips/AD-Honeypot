@@ -1,0 +1,16 @@
+#non-public data and experiments results
+Experiments/
+real-data/
+dag-data/
+#Models
+models/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+# VS code related stuff
+*.code-workspace
+.vscode/
+
