@@ -1,20 +1,19 @@
-import sys
 import json
 from argparse import ArgumentParser
 import numpy as np
 import pickle
 import networkx as nx
-import datetime
+import sys
 
 def transform_graph(A, ordering):
-        new_A = np.zeros_like(A)
-        mapping = {ordering[i]:i for i in range(len(ordering))}
-        for i in range(A.shape[0]):
-            for j in range(A.shape[1]):
-                new_A[mapping[i],mapping[j]] = A[i,j]
-        return new_A
+    new_A = np.zeros_like(A)
+    mapping = {ordering[i]: i for i in range(len(ordering))}
+    for i in range(A.shape[0]):
+        for j in range(A.shape[1]):
+            new_A[mapping[i], mapping[j]] = A[i, j]
+    return new_A
 
-def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "group":3, "user":4, "computer":4}):
+def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2, "group": 3, "user": 4, "computer": 4}):
     objects = {}
 
     DOMAIN_DN = "UNKNOWN"
@@ -51,7 +50,7 @@ def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "g
             #store acces rights
             for ace in item["Aces"]:
                 aces.append(ace["PrincipalSID"])
-            objects[oid] = {"dn":dn, "rdn":rdn, "aces":aces, "objectType":"user", "parent":parent, "node_id":len(objects.keys()), "pGroupSID":item["PrimaryGroupSid"]}
+            objects[oid] = {"dn": dn, "rdn": rdn, "aces": aces, "objectType": "user", "parent": parent, "node_id": len(objects.keys()), "pGroupSID": item["PrimaryGroupSid"]}
             i += 1
         print(f"{i} users")
 
@@ -156,7 +155,7 @@ def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "g
                 except KeyError as e:
                     pass
                     print(f"skipping: {e}")
-        
+                         
         if np.sum(A[:,o["node_id"]]) == 0 and o["objectType"] != "domain":
             for key,value in objects.items():
                 if value["dn"] == o["parent"]:
@@ -180,66 +179,80 @@ def process_sharphound_data(args, classes={"domain":0, "ou":1, "container":2, "g
     n_ordering = [k for k in nx.topological_sort(G)]
     new_A = transform_graph(nx.to_numpy_array(G), [k for k in nx.topological_sort(G)])
     X = X[n_ordering]
-    return {"X":X, "A":A, "node_id_to_oid":node_id_to_oid, "objects":objects}
+    return {"X":X, "A":new_A, "node_id_to_oid":node_id_to_oid, "objects":objects}
 
-def create_honeyusers(node_id_to_oid, objects, parent_nodes):
-    """dsadd user <UserDN> [-samid <SAMName>] [-upn <UPN>] [-fn <FirstName>] [-mi <Initial>] [-ln <LastName>]
-        [-display <DisplayName>] [-empid <EmployeeID>] [-pwd {<Password> | *}] [-desc <Description>] [-memberof <Group> ...]
-        [-office <Office>] [-tel <PhoneNumber>] [-email <Email>] [-hometel <HomePhoneNumber>] [-pager <PagerNumber>] [-mobile <CellPhoneNumber>]
-        [-fax <FaxNumber>] [-iptel <IPPhoneNumber>] [-webpg <WebPage>] [-title <Title>] [-dept <Department>] [-company <Company>] [-mgr <Manager>]
-        [-hmdir <HomeDirectory>] [-hmdrv <DriveLetter>:][-profile <ProfilePath>] [-loscr <ScriptPath>] [-mustchpwd {yes | no}] [-canchpwd {yes | no}]
-        [-reversiblepwd {yes | no}] [-pwdneverexpires {yes | no}] [-acctexpires <NumberOfDays>] [-disabled {yes | no}] [{-s <Server> | -d <Domain>}]
-        [-u <UserName>] [-p {<Password> | *}] [-q] [{-uc | -uco | -uci}]
-    """
-    #generate the attributes of the user
-    unique_id = None
-    password = "superduper password"
-    upn = "user"
-    display  = "User Usersovic"
-
-    #contextual attributes
-    groups_dn = []
-    ou_dn = None
-    for n in parent_nodes:
-        if objects[node_id_to_oid[n]]["objectType"] == "group":
-            groups_dn.append(objects[node_id_to_oid[n]]["dn"])
-        elif objects[node_id_to_oid[n]]["objectType"] == "ou":
-            ou_dn = objects[node_id_to_oid[n]]["dn"]
-    #check that we have a OU
-    if not ou_dn:
-        #find default User OU (always present in AD) and place the user there
-        for o in objects.values():
-            if o["objectType"] == "ou" and o["rdn"].split("=")[-1] == "Users":
-                ou_dn = o["dn"]
-    user_dn = ",".join([cn,ou_dn])
+def preprocess_sharphound():
     
-    #build the group dn sequence
-    groups = ''.join([f'"{x}"' for x in groups_dn])
-    #build the command
-    cmd = f'dsadd user {user_dn}' \
-        f'-samid "{unique_id}"' \
-        f'-upn "{upn}' \
-        f'-display "{display}"' \
-        '-disabled no' \
-        f'-pwd "{password}"' \
-        '-pwdneverexpires yes' \
-        '-accexpires never' \
-        f'-memberof {groups}' \
-
-    print(cmd)
-if __name__ == '__main__':
-
     classes = {"domain":0, "ou":1, "container":2, "group":3, "user":4, "computer":5}
     parser = ArgumentParser()
-    parser.add_argument("--u_file", default=None, type=str, help="Users JSON")
-    parser.add_argument("--c_file", default=None, type=str, help="Computers JSON")
-    parser.add_argument("--d_file", default=None, type=str, help="Domain JSON")
-    parser.add_argument("--g_file", default=None, type=str, help="Groups JSON")
-    parser.add_argument("--o_file", default=None, type=str, help="OUs JSON")
-    parser.add_argument("--gp_file", default=None, type=str, help="GPO JSON")
+    parser.add_argument("--u_file", default="./users.json", type=str, help="Users JSON")
+    parser.add_argument("--c_file", default="./computers.json", type=str, help="Computers JSON")
+    parser.add_argument("--d_file", default="./domains.json", type=str, help="Domain JSON")
+    parser.add_argument("--g_file", default="./groups.json", type=str, help="Groups JSON")
+    parser.add_argument("--o_file", default="./ous.json", type=str, help="OUs JSON")
+    parser.add_argument("--gp_file", default="./gpos.json", type=str, help="GPO JSON")
     parser.add_argument("--out", default="preprocessed_stratotest_domain.pickle", type=str, help="output_filename")
     args = parser.parse_args()
 
     data = process_sharphound_data(args)
+    print(data)
     with open(args.out,"wb") as out_file:
         pickle.dump(data, out_file)
+
+def add_connections(original_data, generated_A):
+    pass
+
+# def create_honeyusers(node_id_to_oid, objects, parent_nodes):
+#     """dsadd user <UserDN> [-samid <SAMName>] [-upn <UPN>] [-fn <FirstName>] [-mi <Initial>] [-ln <LastName>]
+#         [-display <DisplayName>] [-empid <EmployeeID>] [-pwd {<Password> | *}] [-desc <Description>] [-memberof <Group> ...]
+#         [-office <Office>] [-tel <PhoneNumber>] [-email <Email>] [-hometel <HomePhoneNumber>] [-pager <PagerNumber>] [-mobile <CellPhoneNumber>]
+#         [-fax <FaxNumber>] [-iptel <IPPhoneNumber>] [-webpg <WebPage>] [-title <Title>] [-dept <Department>] [-company <Company>] [-mgr <Manager>]
+#         [-hmdir <HomeDirectory>] [-hmdrv <DriveLetter>:][-profile <ProfilePath>] [-loscr <ScriptPath>] [-mustchpwd {yes | no}] [-canchpwd {yes | no}]
+#         [-reversiblepwd {yes | no}] [-pwdneverexpires {yes | no}] [-acctexpires <NumberOfDays>] [-disabled {yes | no}] [{-s <Server> | -d <Domain>}]
+#         [-u <UserName>] [-p {<Password> | *}] [-q] [{-uc | -uco | -uci}]
+#     """
+#     #generate the attributes of the user
+#     unique_id = None
+#     password = "superduper password"
+#     upn = "user"
+#     display  = "User Usersovic"
+#     cn = ""
+#     #contextual attributes
+#     groups_dn = []
+#     ou_dn = None
+#     for n in parent_nodes:
+#         if objects[node_id_to_oid[n]]["objectType"] == "group":
+#             groups_dn.append(objects[node_id_to_oid[n]]["dn"])
+#         elif objects[node_id_to_oid[n]]["objectType"] == "ou":
+#             ou_dn = objects[node_id_to_oid[n]]["dn"]
+#     #check that we have a OU
+#     if not ou_dn:
+#         #find default User OU (always present in AD) and place the user there
+#         for o in objects.values():
+#             if o["objectType"] == "ou" and o["rdn"].split("=")[-1] == "Users":
+#                 ou_dn = o["dn"]         
+#     user_dn = ",".join([cn,ou_dn])
+    
+#     #build the group dn sequence
+#     groups = ''.join([f'"{x}"' for x in groups_dn])
+#     #build the command
+#     cmd = f'dsadd user {user_dn}' \
+#         f'-samid "{unique_id}"' \
+#         f'-upn "{upn}' \
+#         f'-display "{display}"' \
+#         '-disabled no' \
+#         f'-pwd "{password}"' \
+#         '-pwdneverexpires yes' \
+#         '-accexpires never' \
+#         f'-memberof {groups}' \
+
+#     print(cmd)
+
+if __name__ == '__main__':
+    with open(sys.argv[1], 'rb') as f:
+        original_data = pickle.load(f)
+    with open(sys.argv[2], 'rb') as f:
+        generated_data = pickle.load(f)
+
+    print(original_data.keys())
+    print(generated_data)

@@ -224,7 +224,7 @@ class DAG_RNN(tf.keras.layers.Layer):
                 next_state = tf.math.reduce_mean(masked,axis=0)
                 #next_state = self.agg(masked)
 
-                output, state = self.cell(input_data[i], next_state)
+                output, _ = self.cell(input_data[i], next_state)
                 #append to the TensorArray
                 outputs = outputs.write(i, output)
                 if self.return_Hi:
@@ -237,7 +237,7 @@ class DAG_RNN(tf.keras.layers.Layer):
                 next_state = tf.math.reduce_mean(masked,axis=0)
                 #next_state = self.agg(masked)
                 #tf.print(t_next_state.shape, next_state.shape)
-                output, state = self.cell(input_data[i], next_state)
+                output, _ = self.cell(input_data[i], next_state)
                 #append to the TensorArray
                 outputs = outputs.write(i, output)
                 if self.return_Hi:
@@ -305,7 +305,7 @@ class CartesianProductClassifier(tf.keras.layers.Layer):
         @tf.function
         def _cartesian_product(a,b):
             a, b = a[ None, :, None ], b[ :, None, None ]
-            return tf.concat( [ a + tf.zeros_like( b ),tf.zeros_like( a ) + b,  ], axis = 2 )
+            return tf.concat(values=[ a + tf.zeros_like( b ),tf.zeros_like( a ) + b,  ],axis= 2 )
         @tf.function
         def _get_combinations(inputs):
             cp = tf.transpose(_cartesian_product(tf.transpose(inputs,[1,0,2]), tf.transpose(inputs,[1,0,2])),[3,0,1,2,4])
