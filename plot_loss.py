@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+#Author: Ondrej Lukas - lukasond@fel.cvut.cz
 import sys
 import matplotlib
 import json

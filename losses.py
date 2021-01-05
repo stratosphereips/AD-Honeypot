@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+#Author: Ondrej Lukas - lukasond@fel.cvut.cz
 import tensorflow as tf
 import tensorflow.keras.backend as K
 

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+#Author: Ondrej Lukas - lukasond@fel.cvut.cz
 import networkx as nx
 #import plotly.graph_objects as go
 from matplotlib import pylab

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+#Author: Ondrej Lukas - lukasond@fel.cvut.cz
 import json
 from argparse import ArgumentParser
 import numpy as np

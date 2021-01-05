@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+#Author: Ondrej Lukas - lukasond@fel.cvut.cz
 import numpy as np
 import networkx as nx
 import pickle
