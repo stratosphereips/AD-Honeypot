@@ -1,6 +1,9 @@
 # AD-Honeypot
 Project for modeling structure of AD and its content to be used as a honeypot.
-##Author: Ondřej Lukáš - lukasond@fel.cvut.cz, @ondrej_lukas
+
+## Author
+Ondřej Lukáš
+lukasond@fel.cvut.cz, @ondrej_lukas
 
 
 ## Overview
@@ -10,3 +13,5 @@ A common technique while attacking the AD is called lateral movement. Attackers 
 Despite being useful and promising a good detection, the basic constraint of a honeypot is that it should be found before the intruders attack a real target. Therefore, it is crucial to have the honeyuser placed correctly into the AD structure. However, with the complexity and diversity of AD structures, this task is very hard.
 
  We propose three variants of the model architecture and evaluate the performance of each them. Results show that the proposed models achieve F1 score over 0.6 in structure reconstruction tasks. Moreover, the validity ratio of the predicted placement is over 60\% for the graphs of sizes similar to the real-world AD environments.
+
+This project is part of the Master's thesis of Ondřej Lukáš.
