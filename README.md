@@ -1,5 +1,5 @@
 # AD-Honeypot
-Project for modeling structure of AD and its content to be used as a honeypot.
+Project for using GNNs for Active Directory modeling and enrichment with a honeytokens. Based on Tensorflow 2.
 
 ## Author
 Ondřej Lukáš
