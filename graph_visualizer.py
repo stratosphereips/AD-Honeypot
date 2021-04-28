@@ -62,28 +62,35 @@ def plot_graphs_comparison(g1,n1,g2,n2,g3,n3,legend,file_name, names):
     pylab.close()
     del fig
 
-
+#108
 def plot_graphs(g1,n1,g2,n2,legend,file_name, names):
     plt.axis('off')
-    fig = plt.figure(figsize=(20,12))
+    fig = plt.figure(figsize=(16,12))
     ax1 = fig.add_subplot(121)
     ax2 = fig.add_subplot(122)
-    ax1.title.set_text(names[0])
-    ax2.title.set_text(names[1])
+    #ax1.title.set_text(names[0],fontsize=20)
+    ax1.set_title(names[0],fontsize = 36,fontweight="bold")
+    ax2.set_title(names[1],fontsize=36,fontweight="bold")
+    ax2.title.set
     pos =graphviz_layout(g1, prog='dot')
 
-    nx.draw_networkx_nodes(g1,pos,node_color=n1,ax=ax1)
-    nx.draw_networkx_edges(g1,pos,ax=ax1)
-    nx.draw_networkx_labels(g1,pos,ax=ax1)
+    d1 = dict(g1.degree)
+    nx.draw_networkx_nodes(g1,pos,node_color=n1,ax=ax1, node_size=800)
+    nx.draw_networkx_edges(g1,pos,ax=ax1, width=2,arrowsize=30)
+    nx.draw_networkx_labels(g1,pos,ax=ax1, font_size = 18)
 
     pos2 =graphviz_layout(g2, prog='dot')
 
-    nx.draw_networkx_nodes(g2,pos2,node_color=n2,ax=ax2)
-    nx.draw_networkx_edges(g2,pos2,ax=ax2)
-    nx.draw_networkx_labels(g2,pos2,ax=ax2)
+    d2 =  dict(g2.degree)
+    nx.draw_networkx_nodes(g2,pos2,node_color=n2,ax=ax2,node_size=800)
+    nx.draw_networkx_edges(g2,pos2,ax=ax2, width=2, arrowsize=30)
+    nx.draw_networkx_labels(g2,pos2,ax=ax2,font_size = 18)
 
-    fig.legend(handles=legend,loc="lower center",ncol=4)
-    plt.savefig(file_name)
+    #fig.legend(handles, labels, loc='upper center')
+    fig.legend(loc = "lower center",ncol=3,fontsize=36,handles=legend, borderaxespad=0.2, columnspacing=1,markerscale=0.5)
+    fig.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
+    plt.savefig(file_name,dpi = 300)
     pylab.close()
     del fig
 
@@ -116,7 +123,7 @@ def plot_pr_curve(files, file_name):
             data.append(pickle.load(infile))
     fig, ax = plt.subplots(1, 1)
     colors = ["-r","-g","-b","-c"]
-    labels = ["Dataset15", "Dataset50", "Dataset150", "Dataset500"]
+    labels = ["AD15", "AD50", "AD150", "AD500"]
     P = []
     R = []
     for f in range(len(files)):
@@ -152,7 +159,7 @@ def plot_pr_curve(files, file_name):
               fancybox=True, shadow=True, ncol=3)
     plt.ylabel("Precision")
     plt.xlabel("Recall")
-    plt.title("Model 3: Comparison of PR Curve per dataset")
+    plt.title("Comparison of Precision-Recall Curve per dataset")
     plt.savefig(file_name)
 
 def plot_roc_curve(files, file_name):
@@ -286,7 +293,7 @@ def plot_generated_graphs(data, loc="."):
             else:
                 legend[n] = mpatches.Patch(color=cmap(n), label=classes_rev[n])
                 colors_pred.append(cmap(n))
-        plot_graphs(G_orig,colors_orig, G_pred,colors_pred,legend.values(),f"./predictions/Type2/graph_{i}_generated.png",["Original",f"Extended ({len(x_gen)-len(x)} nodes)"])
+        plot_graphs(G_orig,colors_orig, G_pred,colors_pred,legend.values(),f"./predictions/VAE_50_01/graph_{i}_generated.png",["Original",f"Extended ({len(x_gen)-len(x)} nodes)"])
 
 
 def plot_generated_comparison(data,data2,loc="."):
@@ -354,6 +361,7 @@ def check_connectivity(data):
     return unconnected/total_added, (generated_user_edges/total_added)/(original_user_edges/original_users)
 
 def validity_ratio(data):
+    
     predicted_edges =  0
     valid_edges = 0
     for i in range(len(data["gen"])):
@@ -377,3 +385,41 @@ def validity_ratio(data):
                 elif x_gen[parent] == 3 or x_gen[parent] == 4:
                     valid_edges += 1
     return valid_edges/predicted_edges
+
+
+
+if __name__ == '__main__':
+    import sys
+    import pickle
+    import numpy as np
+    import json
+    import tensorflow as tf
+    
+    with open(sys.argv[1], "rb") as in_f:
+        data = pickle.load(in_f)
+
+    print(data["gen"][0][1])
+    """
+    d = {"X":[], "A":[], "gen":[]}
+    for s in data["predictions"]:
+        d["X"].append(tf.squeeze(s["X"]))
+        d["A"].append(tf.squeeze(s["A"]))
+        g = [tf.squeeze(tf.cast(tf.concat([s["X"],classes["New User"]*tf.ones([1,3])], axis=1), dtype=tf.float32))]
+        a_hat = np.where(s["A_hat"] >= 0.1,1,0)
+        g.append(tf.concat([tf.concat([tf.squeeze(s["A"]), a_hat],axis=0), tf.zeros([s["A_hat"].shape[0]+s["A_hat"].shape[1],s["A_hat"].shape[0]])],axis=1))
+        #print(tf.squeeze(s["A"]).shape, s["A_hat"].shape, tf.concat([tf.concat([tf.squeeze(s["A"]),s["A_hat"]],axis=0), tf.zeros([s["A_hat"].shape[0]+s["A_hat"].shape[1],s["A_hat"].shape[0]])],axis=1).shape)
+        #print(np.where(s["A_hat"] >= 0.1,1,0))
+        #print(g[0])
+        d["gen"].append(g)
+    print(d.keys())
+    """
+    plot_generated_graphs(data)
+    """
+    with open(sys.argv[1], "r") as in_f:
+        data = json.load(in_f)
+        honeyusers=[]
+        for x in data:
+            honeyusers.append(f"CN={x['name']} {x['surname']}")
+            print(f"CN={x['name']} {x['surname']}")
+        print(honeyusers)
+    """

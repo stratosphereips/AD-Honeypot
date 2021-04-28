@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-#Author: Ondrej Lukas - lukasond@fel.cvut.cz
+# Author: Ondrej Lukas - lukasond@fel.cvut.cz
 import json
 from argparse import ArgumentParser
 import numpy as np
 import pickle
 import networkx as nx
 import sys
+import csv
+import random
 
 def transform_graph(A, ordering):
     new_A = np.zeros_like(A)
@@ -15,12 +17,13 @@ def transform_graph(A, ordering):
             new_A[mapping[i], mapping[j]] = A[i, j]
     return new_A
 
+
 def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2, "group": 3, "user": 4, "computer": 4}):
     objects = {}
 
     DOMAIN_DN = "UNKNOWN"
-    #read domains
-    with open(args.d_file, "r",encoding="utf-8-sig") as infile:
+    # read domains
+    with open(args.d_file, "r", encoding="utf-8-sig") as infile:
         data = json.load(infile)
         for item in data["domains"]:
             oid = item["ObjectIdentifier"]
@@ -38,8 +41,8 @@ def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2,
                 aces.append(ace["PrincipalSID"])
             objects[oid] = {"dn":dn, "rdn":rdn, "aces":aces, "objectType":"domain","children":children,"parent":parent, "node_id":len(objects.keys())}
 
-    #read users:
-    with open(args.u_file, "r",encoding="utf-8-sig") as infile:
+    # read users:
+    with open(args.u_file, "r", encoding="utf-8-sig") as infile:
         data = json.load(infile)
         i = 0
         for item in data["users"]:
@@ -56,8 +59,8 @@ def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2,
             i += 1
         print(f"{i} users")
 
-    #read computers:
-    with open(args.c_file, "r",encoding="utf-8-sig") as infile:
+    # read computers:
+    with open(args.c_file, "r", encoding="utf-8-sig") as infile:
         i = 0
         data = json.load(infile)
         for item in data["computers"]:
@@ -72,7 +75,7 @@ def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2,
             objects[oid] = {"dn":dn, "rdn":rdn, "aces":aces, "objectType":"computer", "spNames":item["Properties"]["serviceprincipalnames"],"parent":parent,"node_id":len(objects.keys()), "pGroupSID":item["PrimaryGroupSid"]}
             i += 1
         print(f"{i} Computers")
-    #read ous:
+    # read ous:
     with open(args.o_file, "r",encoding="utf-8-sig") as infile:
         i = 0
         data = json.load(infile)
@@ -95,8 +98,8 @@ def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2,
             i += 1
         print(f"{i} OUs")
 
-    #read groups:
-    with open(args.g_file, "r",encoding="utf-8-sig") as infile:
+    # read groups:
+    with open(args.g_file, "r", encoding="utf-8-sig") as infile:
         i = 0
         data = json.load(infile)
         for item in data["groups"]:
@@ -120,7 +123,7 @@ def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2,
             #store acces rights
             for ace in item["Aces"]:
                 aces.append(ace["PrincipalSID"])
-            objects[oid] = {"dn":dn, "rdn":rdn, "aces":aces, "objectType":"group", "children":children, "parent":parent,"node_id": len(objects.keys())}
+            objects[oid] = {"dn": dn, "rdn": rdn, "aces": aces, "objectType": "group", "children": children, "parent":parent,"node_id": len(objects.keys())}
             i+= 1
         print(f"{i} groups")
 
@@ -183,6 +186,7 @@ def process_sharphound_data(args, classes={"domain": 0, "ou": 1, "container": 2,
     X = X[n_ordering]
     return {"X":X, "A":new_A, "node_id_to_oid":node_id_to_oid, "objects":objects}
 
+
 def preprocess_sharphound():
     
     classes = {"domain":0, "ou":1, "container":2, "group":3, "user":4, "computer":5}
@@ -200,9 +204,47 @@ def preprocess_sharphound():
     print(data)
     with open(args.out,"wb") as out_file:
         pickle.dump(data, out_file)
+    return data
 
-def add_connections(original_data, generated_A):
-    pass
+
+def add_connections(original_data, generated_data,user_data_csv,output_file="Enriched.json"):
+    names = []
+    with open(user_data_csv, "r") as csvfile:
+        name_list = csv.reader(csvfile, delimiter=',')
+        for line in name_list:
+            names.append((line[1],line[2], f"{line[1].lower()}.{line[2].lower()}@rosta.com", f"{line[1].lower()}.{line[2].lower()}", line[4]))
+    names = names[1:]
+    output = []
+    for i in range(generated_data.shape[0]):
+        parents_ous = set()
+        parents = []
+        ou = None
+        for j in range(generated_data.shape[1]):
+            if(generated_data[i][j] > 0.1):
+                if  original_data['objects'][original_data['node_id_to_oid'][j]]["objectType"]== 'user':
+                    parents_ous.add(original_data['objects'][original_data['node_id_to_oid'][j]]["parent"])
+                else:
+                   parents.append(original_data['objects'][original_data['node_id_to_oid'][j]]["dn"])
+                   if original_data['objects'][original_data['node_id_to_oid'][j]]["objectType"] == "ou":
+                    ou = original_data['objects'][original_data['node_id_to_oid'][j]]["dn"]
+        if not ou:
+            ou = random.sample(parents_ous,1)
+        output.append({"name":names[i][0], "surname":names[i][1], "email":names[i][2], "login":names[i][3], "password":names[i][4], "ou": ou, "parents": parents})
+    with open("fake_users_stratodomain_random.json", 'w',encoding="utf-8") as fp:
+        json.dump(output, fp)
+
+
+def generate_random_honeyusers(A, num_nodes):
+    mean = np.mean(np.sum(A, axis=1))
+    ids = [i for i in range(A.shape[0])]
+    new_nodes = np.zeros([num_nodes, A.shape[0]])
+    for i in range(num_nodes):
+        n = np.random.poisson(mean)
+        for k in np.random.choice(ids,n,replace=False):
+            new_nodes[i,k] = 1
+        print(n, new_nodes[i,:])
+    return new_nodes
+
 
 # def create_honeyusers(node_id_to_oid, objects, parent_nodes):
 #     """dsadd user <UserDN> [-samid <SAMName>] [-upn <UPN>] [-fn <FirstName>] [-mi <Initial>] [-ln <LastName>]
@@ -253,8 +295,5 @@ def add_connections(original_data, generated_A):
 if __name__ == '__main__':
     with open(sys.argv[1], 'rb') as f:
         original_data = pickle.load(f)
-    with open(sys.argv[2], 'rb') as f:
-        generated_data = pickle.load(f)
-
-    print(original_data.keys())
-    print(generated_data)
+    predicted = generate_random_honeyusers(original_data["A"], 20)
+    add_connections(original_data,predicted,"./names.csv","Enriched_stratodomain_random.json")

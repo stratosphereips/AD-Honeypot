@@ -17,6 +17,7 @@ from utils import *
 #***********************************************************
 #                      Models                               
 ############################################################
+""""
 class DAG_AE(tf.keras.Model):
     def __init__(self,args):
         super(DAG_AE,self).__init__(name="DAG_AE")
@@ -111,6 +112,9 @@ class DAG_AE_newX(tf.keras.Model):
         #upsampled = tf.transpose(tf.ones([upsampled.shape[-1],1,1])*tf.cast(mask,tf.float32),[1,2,0])*upsampled
         predictions = self.pred([hidden,upsampled])
         return predictions
+"""
+
+
 
 class DAG_VAE(tf.keras.Model):
     """
@@ -179,10 +183,23 @@ class DAG_VAE(tf.keras.Model):
         tf.print(predictions.shape)
         return tf.transpose(predictions, [1,0]), z
 
+    def get_latent_representaition(self, inputs):
+        X,A = inputs
+        mask = tf.not_equal(X, 0)
+        # Embedd input nodes
+        x_emb = self.node_embedding(X,training=False)
+        tf.debugging.assert_all_finite(x_emb, "Embedding incorrect")
+        #encdode nodes in existing graph
+        hidden = self.encoder([x_emb, A],training=False)
+        #tf.debugging.assert_all_finite(hidden, "hidden incorrect")
+
+        #apply mask
+        hidden = tf.transpose(tf.ones([hidden.shape[-1],1,1])*tf.cast(mask,tf.float32),[1,2,0])*hidden
+        return hidden
 ############################################################
 #                   Networks                               # 
 ############################################################
-
+"""
 class DAG_RNNAutoencoder:
     def __init__(self, args):
         self._model = BiDAG_AE(args)  
@@ -196,7 +213,7 @@ class DAG_RNNAutoencoder:
         self.verbose = args.verbose
     
     def _kl_divergence(self, a_mean, a_sd, b_mean, b_sd):
-        """Method for computing KL divergence of two normal distributions."""
+        #Method for computing KL divergence of two normal distributions.
         a_sd_squared, b_sd_squared = a_sd ** 2, b_sd ** 2
         ratio = a_sd_squared / (b_sd_squared1e-12)
         return (a_mean - b_mean) ** 2 / ((2 * b_sd_squared)+1e-12) + (ratio - tf.math.log(ratio) - 1) / 2
@@ -340,7 +357,8 @@ class DAG_RNNAutoencoder:
         
         #replace predictions of original nodes with the real values
         return predictions
-
+"""
+"""
 class ModelType2:
     def __init__(self, args):
         self._model = Model2(args)  
@@ -484,7 +502,7 @@ class ModelType2:
         
         #replace predictions of original nodes with the real values
         return predictions
-
+"""
 class DAG_RNNVariationalAutoencoder:
     def __init__(self, args):
         self._model = DAG_VAE(args)
@@ -618,6 +636,11 @@ class DAG_RNNVariationalAutoencoder:
     def generate(self, X, A,args,m):
             predictions, z = self._model.generate([X,A,m])
             return predictions, z
+
+    def get_latent_representaition(self,X,A):
+        hidden = self._model.get_latent_representaition([X,A])
+        return hidden
+"""
 class DAG_RNNAutoencoderNewX:
     def __init__(self, args):
         self._model = DAG_AE_newX(args)
@@ -749,22 +772,23 @@ class DAG_RNNAutoencoderNewX:
         #replace predictions of original nodes with the real values
         return predictions
 
-
+"""
 if __name__ == "__main__":
+    print(tf.__version__)
     from argparse import ArgumentParser
     parser = ArgumentParser()
     
     #global parameters
-    parser.add_argument("--batch_size", default=32, type=int, help="Batch size.")
-    parser.add_argument("--epochs", default=100, type=int, help="Number of epochs.")
+    parser.add_argument("--batch_size", default=8, type=int, help="Batch size.")
+    parser.add_argument("--epochs", default=300, type=int, help="Number of epochs.")
     parser.add_argument("--threads", default=0, type=int, help="Maximum number of threads to use.")
     parser.add_argument("--lr", default=1e-4, type=float, help="Learning rate")
     
     #encoder parameters
     parser.add_argument("--feature_dim", default=6, type=int, help="Feature dimension")
     parser.add_argument("--rnn_dim", default=32, type=int, help="Encoder RNN dimension.")
-    parser.add_argument("--node_emb_dim", default=12, type=int, help="Graph embedding dimension")
-    parser.add_argument("--edge_threshold", default=0.01, type=float, help="Edge limit value during generation")
+    parser.add_argument("--node_emb_dim", default=6, type=int, help="Graph embedding dimension")
+    parser.add_argument("--edge_threshold", default=0.05, type=float, help="Edge limit value during generation")
     parser.add_argument("--verbose", default=False, type=bool, help="Verbose output")
     args = parser.parse_args()
     args.logdir = os.path.join("logs", "{}-{}-{}".format(
@@ -782,21 +806,26 @@ if __name__ == "__main__":
     if not args.verbose:
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-    train_data = "./dag-data/150_nodes/train_150.pickle"
-    dev_data = "./dag-data/150_nodes/dev_150.pickle"
+    #train_data = "./dag-data/150_nodes/train_150.pickle"
+    #dev_data = "./dag-data/150_nodes/dev_150.pickle"
 
     #train_data = "./dag-data/50_nodes/train_50.pickle"
     #dev_data = "./dag-data/50_nodes/dev_50.pickle"
 
-    #train_data = "./dag-data/15_nodes/train_15.pickle"
-    #dev_data = "./dag-data/15_nodes/dev_15.pickle"
+    train_data = "./dag-data/15_nodes/train_15.pickle"
+    dev_data = "./dag-data/15_nodes/dev_15.pickle"
 
     #train_data = "./dag-data/500_nodes/train_500.pickle"
     #dev_data = "./dag-data/500_nodes/dev_500.pickle"
 
-    dataset_train = DAG_Dataset(shuffle_batches=True,max_samples=5000,seed=42)
+
+    #############GRID#######################
+    #train_data = "./dag-data/dataset_grid_50.pickle"
+    #dev_data = "./dag-data/dataset_grid_50_dev.pickle"
+
+    dataset_train = DAG_Dataset(shuffle_batches=True,max_samples=2000,seed=42)
     dataset_train.read_nx_pickle(train_data)
-    dataset_dev = DAG_Dataset(shuffle_batches=True, max_samples=750,seed=42)
+    dataset_dev = DAG_Dataset(shuffle_batches=True, max_samples=200,seed=42)
     dataset_dev.read_nx_pickle(dev_data)
     
     #network = DAG_RNNAutoencoderNewX(args)
@@ -810,10 +839,18 @@ if __name__ == "__main__":
     arg_list  = [(k,v) for k, v in sorted(vars(args).items()) if k != 'logdir']
     details = ",".join(("{}={}".format(re.sub("(.)[^_]*_?", r"\1", key), value) for key, value in arg_list))
     network.train(dataset_train, dataset_dev, args)
-    #network._model.save_weights(f'./VAE_{details}/my_checkpoint')
-
+    network._model.save_weights(f'./VAE_{details}/my_checkpoint')
     #network._model.load_weights(f'./VAE_{details}/my_checkpoint')
     metrics, predictions = network.test(dataset_dev, args)
+    predictions = []
+    for batch in dataset_dev.batches(1):
+        X = batch["X"]
+        A = batch["A"]
+        pred, z  = network.generate(X, A, args, 3)
+        predictions.append({"X":X, "A":A, "A_hat":pred, "z":z})
+    out = {"predictions":predictions, "info":details}
+    with open(f'generated_grid50.pickle','wb') as f: pickle.dump(out, f)
+    """
     print("TEST:")
     #print(metrics)
     print("Generation")
@@ -831,3 +868,4 @@ if __name__ == "__main__":
     pred, z  = network.generate(X, A, args, 20)
     tf.print(pred,output_stream="file://generated_strato.txt",summarize=-1)
     with open('generated_strato_pickle.pickle','wb') as f: pickle.dump(pred, f)
+    """

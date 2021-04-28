@@ -350,10 +350,24 @@ class CartesianProductClassifier_2inputs(tf.keras.layers.Layer):
 
 
 if __name__ == '__main__':
-    X = np.array([[1,2,3,0]],dtype=np.float32)
-    A = np.array([[[0,0,0,0],[1,0,0,0],[0,1,0,0],[0,0,0,0]]],dtype=np.float32)
-    targets = [[0,1,0,0],[0,0,0,1]]
-    cp  = CartesianProductClassifier_2inputs()
+    #X = np.array([[1,2,3,0]],dtype=np.float32)
+    #A = np.array([[[0,0,0,0],[1,0,0,0],[0,1,0,0],[0,0,0,0]]],dtype=np.float32)
+    #targets = [[0,1,0,0],[0,0,0,1]]
+    #cp  = CartesianProductClassifier_2inputs()
+    def cp(inputs):
+        
+        @tf.function
+        def _cartesian_product(a,b):
+            a, b = a[ None, :, None ], b[ :, None, None ]
+            return tf.concat(values=[ a + tf.zeros_like( b ),tf.zeros_like( a ) + b,  ],axis= 2 )
+        
+        @tf.function
+        def _get_combinations(inputs):
+            cp = tf.transpose(_cartesian_product(tf.transpose(inputs,[1,0,2]), tf.transpose(inputs,[1,0,2])),[3,0,1,2,4])
+            ret = tf.reshape(cp, [inputs.shape[0],inputs.shape[1],inputs.shape[1],2*inputs.shape[2]])
+            return ret
+        return _get_combinations(inputs)
+
     x = tf.constant([[[1,1,1],[2,2,2],[3,3,3]]],dtype=tf.float32)
-    y = tf.constant([[[5,5,5,5]]],dtype=tf.float32)
+    y = tf.constant([[[5,5,5]]],dtype=tf.float32)
     print(cp([x,y]))
